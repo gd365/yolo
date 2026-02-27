@@ -1,7 +1,5 @@
 package router
 
-var URL_TPL = `package router
-
 import (
 	"github.com/gin-gonic/gin"
 
@@ -20,4 +18,3 @@ func URLs(r *gin.Engine) {
 		write.POST("/liveness", controller.Liveness)
 	}
 }
-`

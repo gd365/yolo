@@ -3,29 +3,41 @@ package service
 import (
 	"bytes"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"text/template"
-
-	"github.com/yolooks/yolo/pkg/template/cmd"
-	"github.com/yolooks/yolo/pkg/template/config"
-	"github.com/yolooks/yolo/pkg/template/controller"
-	"github.com/yolooks/yolo/pkg/template/model"
-	"github.com/yolooks/yolo/pkg/template/router"
-	"github.com/yolooks/yolo/pkg/template/service"
-	"github.com/yolooks/yolo/pkg/template/util/cm"
 )
 
 type Rander struct {
 	ProjectName string
 	ProjectPort int
+	verbose     bool
 }
 
-func NewRander(projectName string, projectPort int) *Rander {
-	return &Rander{
+type RanderOption func(*Rander)
+
+func WithVerbose(v bool) RanderOption {
+	return func(r *Rander) {
+		r.verbose = v
+	}
+}
+
+func NewRander(projectName string, projectPort int, opts ...RanderOption) *Rander {
+	r := &Rander{
 		ProjectName: projectName,
 		ProjectPort: projectPort,
+	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
+}
+
+func (r *Rander) log(format string, args ...interface{}) {
+	if r.verbose {
+		fmt.Printf(format+"\n", args...)
 	}
 }
 
@@ -34,9 +46,9 @@ func (r *Rander) InitDir() error {
 	for _, dir := range dirs {
 		curPath := filepath.Join(r.ProjectName, dir)
 		if err := os.MkdirAll(curPath, os.ModePerm); err != nil {
-			return err
+			return ErrorWithCode(ErrCreateDir, fmt.Errorf("path: %s, error: %w", curPath, err))
 		}
-		fmt.Printf("create dir: %s success\n", curPath)
+		r.log("create dir: %s", curPath)
 	}
 	return nil
 }
@@ -44,147 +56,70 @@ func (r *Rander) InitDir() error {
 func (r *Rander) InitPkg() error {
 	command := fmt.Sprintf("cd %s/pkg && mkdir -p {config,controller,model,router,service,util/cm}", r.ProjectName)
 	if err := exec.Command("/bin/bash", "-c", command).Run(); err != nil {
-		return err
+		return ErrorWithCode(ErrCreatePkg, err)
 	}
-	fmt.Println("pkg init success")
+	r.log("pkg init success")
 
-	// rander cmd
-	cmdTpl, err := r.GenerateFile(cmd.TPL)
-	if err != nil {
-		return err
-	}
-	cmdFile := filepath.Join(r.ProjectName, "cmd", "server.go")
-	if err := os.WriteFile(cmdFile, cmdTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("cmd rander success")
+	tplFS := GetTemplateFS()
 
-	// rander config
-	etcTpl, err := r.GenerateFile(config.ETC_TPL)
-	if err != nil {
-		return err
-	}
-	etcFile := filepath.Join(r.ProjectName, "etc", "dev.yaml")
-	if err := os.WriteFile(etcFile, etcTpl, 0644); err != nil {
-		return err
+	templates := []templateItem{
+		{"cmd/server.go.tmpl", "cmd/server.go"},
+		{"config/dev.yaml.tmpl", "etc/dev.yaml"},
+		{"config/config.go.tmpl", "pkg/config/config.go"},
+		{"config/log.go.tmpl", "pkg/config/log.go"},
+		{"config/define.go.tmpl", "pkg/config/define.go"},
+		{"service/service.go.tmpl", "pkg/service/service.go"},
+		{"controller/typedef.go.tmpl", "pkg/controller/typedef.go"},
+		{"controller/controller.go.tmpl", "pkg/controller/controller.go"},
+		{"router/url.go.tmpl", "pkg/router/url.go"},
+		{"router/middleware.go.tmpl", "pkg/router/middleware.go"},
+		{"util/cm/cm.go.tmpl", "pkg/util/cm/cm.go"},
+		{"model/base.go.tmpl", "pkg/model/base.go"},
 	}
 
-	configTpl, err := r.GenerateFile(config.CONFIG_TPL)
-	if err != nil {
-		return err
+	for _, item := range templates {
+		if err := r.renderTemplate(tplFS, item.source, item.target); err != nil {
+			return err
+		}
 	}
-	configFile := filepath.Join(r.ProjectName, "pkg", "config", "config.go")
-	if err := os.WriteFile(configFile, configTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("config rander success")
 
-	configLogTpl, err := r.GenerateFile(config.LOG_TPL)
-	if err != nil {
-		return err
-	}
-	configLogFile := filepath.Join(r.ProjectName, "pkg", "config", "log.go")
-	if err := os.WriteFile(configLogFile, configLogTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("config log rander success")
+	return nil
+}
 
-	configDefineTpl, err := r.GenerateFile(config.CONFIG_DEFINE_TPL)
-	if err != nil {
-		return err
-	}
-	configDefineFile := filepath.Join(r.ProjectName, "pkg", "config", "define.go")
-	if err := os.WriteFile(configDefineFile, configDefineTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("config define rander success")
+type templateItem struct {
+	source string
+	target string
+}
 
-	// rander service
-	serviceTpl, err := r.GenerateFile(service.SERVICE_TPL)
+func (r *Rander) renderTemplate(tplFS fs.FS, source, target string) error {
+	tplContent, err := fs.ReadFile(tplFS, source)
 	if err != nil {
-		return err
+		return ErrorWithCode(ErrReadTemplate, fmt.Errorf("template: %s, error: %w", source, err))
 	}
-	serviceFile := filepath.Join(r.ProjectName, "pkg", "service", "service.go")
-	if err := os.WriteFile(serviceFile, serviceTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("service rander success")
 
-	// rander controller
-	typeDefTpl, err := r.GenerateFile(controller.TYPEDEF_TPL)
+	rendered, err := r.GenerateFile(string(tplContent))
 	if err != nil {
 		return err
 	}
-	typeDefFile := filepath.Join(r.ProjectName, "pkg", "controller", "typedef.go")
-	if err := os.WriteFile(typeDefFile, typeDefTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("controller typedef rander success")
 
-	controllerTpl, err := r.GenerateFile(controller.CONTROLLER_TPL)
-	if err != nil {
-		return err
+	targetFile := filepath.Join(r.ProjectName, target)
+	if err := os.WriteFile(targetFile, rendered, 0644); err != nil {
+		return ErrorWithCode(ErrWriteFile, fmt.Errorf("file: %s, error: %w", targetFile, err))
 	}
-	controllerFile := filepath.Join(r.ProjectName, "pkg", "controller", "controller.go")
-	if err := os.WriteFile(controllerFile, controllerTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("controller rander success")
 
-	// rander router
-	urlTpl, err := r.GenerateFile(router.URL_TPL)
-	if err != nil {
-		return err
-	}
-	urlFile := filepath.Join(r.ProjectName, "pkg", "router", "url.go")
-	if err := os.WriteFile(urlFile, urlTpl, 0644); err != nil {
-		return err
-	}
-	middlewareTpl, err := r.GenerateFile(router.MID_TPL)
-	if err != nil {
-		return err
-	}
-	middlewareFile := filepath.Join(r.ProjectName, "pkg", "router", "middleware.go")
-	if err := os.WriteFile(middlewareFile, middlewareTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("router url rander success")
-
-	// rander util
-	cmdTpl, err = r.GenerateFile(cm.TPL)
-	if err != nil {
-		return err
-	}
-	cmdFile = filepath.Join(r.ProjectName, "pkg", "util", "cm", "cm.go")
-	if err := os.WriteFile(cmdFile, cmdTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("util cm rander success")
-
-	// rander model
-	modelTpl, err := r.GenerateFile(model.TPL)
-	if err != nil {
-		return err
-	}
-	modelFile := filepath.Join(r.ProjectName, "pkg", "model", "base.go")
-	if err := os.WriteFile(modelFile, modelTpl, 0644); err != nil {
-		return err
-	}
-	fmt.Println("model rander success")
+	r.log("render: %s -> %s", source, target)
 	return nil
 }
 
 func (r *Rander) GenerateFile(tpl string) ([]byte, error) {
 	tmpl, err := template.New("yolo").Parse(tpl)
 	if err != nil {
-		fmt.Println("template file parse error: ", err)
-		return nil, err
+		return nil, ErrorWithCode(ErrParseTemplate, err)
 	}
 
 	var tplOutput bytes.Buffer
 	if err := tmpl.Execute(&tplOutput, r); err != nil {
-		fmt.Println("exec template file get output error: ", err)
-		return nil, err
+		return nil, ErrorWithCode(ErrRenderTemplate, err)
 	}
 	return tplOutput.Bytes(), nil
 }
@@ -192,14 +127,14 @@ func (r *Rander) GenerateFile(tpl string) ([]byte, error) {
 func (r *Rander) RunGoMod() error {
 	command := fmt.Sprintf("cd %s && go mod init %s", r.ProjectName, r.ProjectName)
 	if err := exec.Command("/bin/bash", "-c", command).Run(); err != nil {
-		return err
+		return ErrorWithCode(ErrGoMod, fmt.Errorf("go mod init failed: %w", err))
 	}
-	fmt.Printf("go mod init %s success\n", r.ProjectName)
+	r.log("go mod init %s", r.ProjectName)
 
 	command = fmt.Sprintf("cd %s && go mod tidy", r.ProjectName)
 	if err := exec.Command("/bin/bash", "-c", command).Run(); err != nil {
-		return err
+		return ErrorWithCode(ErrGoMod, fmt.Errorf("go mod tidy failed: %w", err))
 	}
-	fmt.Println("go mod tidy success")
+	r.log("go mod tidy")
 	return nil
 }

@@ -1,7 +1,5 @@
 package config
 
-var LOG_TPL = `package config
-
 import (
 	"io"
 	"os"
@@ -32,4 +30,3 @@ func InitLogger(logFile string) {
 	log.SetOutput(allWriters)
 	log.SetLevel(log.InfoLevel)
 }
-`

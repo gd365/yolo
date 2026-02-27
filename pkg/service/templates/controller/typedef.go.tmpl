@@ -1,7 +1,5 @@
 package controller
 
-var TYPEDEF_TPL = `package controller
-
 import (
 	"net/http"
 
@@ -9,9 +7,9 @@ import (
 )
 
 type MyResponse struct {
-	Code      int         ` + "`" + `json:"code"` + "`" + `      // error code
-	Message   string      ` + "`" + `json:"message"` + "`" + `   // error message
-	Data      interface{} ` + "`" + `json:"data"` + "`" + `      // data
+	Code      int         `json:"code"`
+	Message   string      `json:"message"`
+	Data      interface{} `json:"data"`
 }
 
 func ResponseAPI(c *gin.Context, myResponse MyResponse) {
@@ -21,4 +19,3 @@ func ResponseAPI(c *gin.Context, myResponse MyResponse) {
 func Response(c *gin.Context, code int, data interface{}) {
 	c.JSON(code, data)
 }
-`

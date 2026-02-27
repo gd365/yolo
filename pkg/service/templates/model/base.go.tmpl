@@ -1,7 +1,5 @@
 package model
 
-var TPL = `package model
-
 import (
 	"fmt"
 	"sync"
@@ -56,4 +54,4 @@ func Connect(driver, master string, slaves ...string) {
 		MEngine = eg.Master()
 		SEngine = eg.Slave()
 	})
-} `
+}

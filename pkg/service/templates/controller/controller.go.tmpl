@@ -1,7 +1,5 @@
 package controller
 
-var CONTROLLER_TPL = `package controller
-
 import (
 	"net/http"
 
@@ -18,4 +16,3 @@ func Liveness(c *gin.Context) {
 	}
 	Response(c, http.StatusOK, "ok")
 }
-`
