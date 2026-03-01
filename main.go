@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/yolooks/yolo/pkg/service"
+	"github.com/jotiao/yolo/pkg/service"
 )
 
 var (

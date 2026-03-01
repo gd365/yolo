@@ -1,3 +1,3 @@
-module github.com/yolooks/yolo
+module github.com/jotiao/yolo
 
 go 1.21
